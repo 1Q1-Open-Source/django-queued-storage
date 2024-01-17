@@ -40,6 +40,7 @@ django-appconf = ">=0.4"
 packaging = ">=16.8"
 setuptools-scm = "^8.0.4"
 celery = "^5.3.6"
+django = "3.2.16"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"
@@ -48,6 +49,7 @@ pytest-sugar = "^0.9.7"
 pytest-assume = "^2.4.3"
 pytest-celery = "^0.0.0"
 pytest-django = "^4.7.0"
+django-cleanup = "^8.0.0"
 
 [build-system]
 requires = ["poetry-core"]

@@ -31,4 +31,4 @@ have a very specific usage of django-queued-storage.
 """
 from django.dispatch import Signal
 
-file_transferred = Signal(providing_args=["name", "local", "remote"])
+file_transferred = Signal()

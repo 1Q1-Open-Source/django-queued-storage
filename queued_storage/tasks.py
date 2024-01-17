@@ -1,18 +1,147 @@
+from functools import partial
+from typing import Callable
 from django.core.cache import cache
 
-from celery.task import Task
-try:
-    from celery.utils.log import get_task_logger
-except ImportError:
-    from celery.log import get_task_logger
+from celery import shared_task
+from celery.app.task import Task
+from celery.utils.log import get_task_logger
 
 
-from .conf import settings
+from django.conf import settings
+from django.core.files.storage import Storage
 from .signals import file_transferred
 from .utils import import_attribute
 
-logger = get_task_logger(name=__name__)
 
+MODULE_NAME = __name__
+logger = get_task_logger(name=MODULE_NAME)
+
+
+class TransferFailedException(Exception):
+    """Custom exception to throw when the transfer failed.
+
+     Used to signal we want celery to retry the task."""
+    pass
+
+
+def transfer_func_caller(
+        name: str,
+        cache_key: str,
+        local_path: str,
+        remote_path: str,
+        local_options: dict,
+        remote_options: dict,
+        *,
+        transfer_func: Callable[[Storage, str, Storage], bool]
+):
+    """
+    Calls the specified transfer_func passing in the local and remote storage backends and path string as given
+    with the parameters.
+
+    :param name: name of the file to transfer
+    :type name: str
+    :param local_path: local storage class to transfer from
+    :type local_path: str
+    :param local_options: options of the local storage class
+    :type local_options: dict
+    :param remote_path: remote storage class to transfer to
+    :type remote_path: str
+    :param remote_options: options of the remote storage class
+    :type remote_options: dict
+    :param cache_key: cache key to set after a successful transfer
+    :type cache_key: str
+    :rtype: task result
+    """
+    # TODO: This could be substituted for context managers.
+    local: Storage = import_attribute(local_path)(**local_options)
+    remote: Storage = import_attribute(remote_path)(**remote_options)
+
+    transfer_result = transfer_func(local, name, remote)
+
+    # Todo: This can be simplified since the TransferFailedException is now being caught by the task decorator
+    # TODO: provide a nicer sender name that reflects using custom transfer_func instead of the default.
+    if transfer_result is True:
+        cache.set(cache_key, True)
+        file_transferred.send(
+            sender=f"queued_storage.tasks.transfer_func_caller", name=name, local=local, remote=remote
+        )
+    elif transfer_result is False:
+        raise TransferFailedException()
+    else:
+        raise ValueError(f"Task 'queued_storage.tasks.transfer_func_caller' did not return True/False but {transfer_result}")
+    return transfer_result
+
+
+def _transfer_file(local: Storage, name: str, remote: Storage):
+    """
+    Transfers the file with the given name from the local storage backend to the remote storage backend.
+    """
+    try:
+        remote.save(name, local.open(name))
+        return True
+    except Exception as e:
+        logger.error(f"Unable to save '{name}' to remote storage. About to retry.")
+        logger.exception(e)
+        return False
+
+
+def _transfer_file_and_delete(local: Storage, name: str, remote: Storage):
+    """
+    Transfers the file with the given name from the local storage backend to the remote storage backend.
+    """
+    try:
+        remote.save(name, local.open(name))
+        # TODO: This should probably make sure the file was successfully transferred before deleting it.
+        local.delete(name)
+        return True
+    except Exception as e:
+        logger.error(f"Unable to save '{name}' to remote storage. About to retry.")
+        logger.exception(e)
+        return False
+
+
+@shared_task(
+    autoretry_for=(TransferFailedException,),
+    default_retry_delay=settings.QUEUED_STORAGE_RETRY_DELAY,
+    retry_kwargs={'max_retries': settings.QUEUED_STORAGE_RETRIES}
+)
+def transfer(name: str, cache_key: str, local_path: str, remote_path: str, local_options: dict, remote_options: dict):
+    """
+    Calls the transfer method with the local and remote storage backends as given with the parameters.
+    """
+    return transfer_func_caller(
+        name=name,
+        cache_key=cache_key,
+        local_path=local_path,
+        remote_path=remote_path,
+        local_options=local_options,
+        remote_options=remote_options,
+        transfer_func=_transfer_file
+    )
+
+
+# TODO: setup equivalent functions to transfer_func_caller and simple_transfer for transfer_and_delete
+@shared_task(
+    autoretry_for=(TransferFailedException,),
+    default_retry_delay=settings.QUEUED_STORAGE_RETRY_DELAY,
+    retry_kwargs={'max_retries': settings.QUEUED_STORAGE_RETRIES}
+)
+def transfer_and_delete(name: str, cache_key: str, local_path: str, remote_path: str, local_options: dict, remote_options: dict):
+    """
+    Calls the transfer method with the local and remote storage backends as given with the parameters.
+    """
+    return transfer_func_caller(
+        name=name,
+        cache_key=cache_key,
+        local_path=local_path,
+        remote_path=remote_path,
+        local_options=local_options,
+        remote_options=remote_options,
+        transfer_func=_transfer_file_and_delete
+    )
+
+
+# region Original Code
 
 class Transfer(Task):
     """
@@ -133,3 +262,5 @@ class TransferAndDelete(Transfer):
         if result:
             local.delete(name)
         return result
+
+# endregion

@@ -8,3 +8,7 @@ class TestModel(models.Model):
     remote = QueuedFileField(upload_to='test', null=True)
 
     retried = False
+
+    def delete(self, *args, **kwargs):
+        self.testfile.delete()
+        super().delete()
