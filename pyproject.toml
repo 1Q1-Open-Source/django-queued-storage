@@ -30,6 +30,9 @@ homepage = 'https://github.com/jazzband/django-queued-storage'
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "tests.settings"
 django_find_project = false
+pythonpath = [
+  "."
+]
 #addopts = '--cov queued_storage'
 
 
@@ -40,9 +43,9 @@ django-appconf = ">=0.4"
 packaging = ">=16.8"
 setuptools-scm = "^8.0.4"
 celery = "^5.3.6"
-django = "3.2.16"
+django = ">=3.2.16"
 
-[tool.poetry.group.dev.dependencies]
+[tool.poetry.group.test.dependencies]
 pytest = "^7.4.4"
 pytest-cov = "^4.1.0"
 pytest-sugar = "^0.9.7"
@@ -51,6 +54,9 @@ pytest-celery = "^0.0.0"
 pytest-django = "^4.7.0"
 django-cleanup = "^8.0.0"
 
+[tool.poetry.group.dev.dependencies]
+tox = "^4.15.0"
+
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"

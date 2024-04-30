@@ -4,6 +4,7 @@ import tempfile
 from os.path import join
 from pathlib import Path
 from datetime import datetime
+from typing import Tuple
 
 from celery import current_app
 
@@ -22,7 +23,7 @@ DJANGO_VERSION = django.get_version()
 
 
 @pytest.fixture
-def setup_teardown() -> tuple[str, str, str, str, File]:
+def setup_teardown() -> Tuple[str, str, str, str, File]:
     """
     Set up and tear down procedures for tests
     """
